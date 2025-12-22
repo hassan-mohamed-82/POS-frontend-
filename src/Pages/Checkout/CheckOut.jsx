@@ -38,6 +38,7 @@ const CheckOut = ({
   totalDiscount,
   selectedPaymentItemIds = [],
   onClearCart,
+  shouldPrintReceipt = true,
 }) => {
   const cashierId = sessionStorage.getItem("cashier_id");
   const baseUrl = import.meta.env.VITE_API_BASE_URL;
@@ -70,47 +71,91 @@ const CheckOut = ({
   const [selectedTaxId, setSelectedTaxId] = useState(null);
   const [freeDiscount, setFreeDiscount] = useState("");
 
-  // === QZ Tray Connection ===
+// === QZ Tray Connection ===
   useEffect(() => {
+    if (!shouldPrintReceipt) {
+    // لو مش هنطبع → متعملش اتصال بـ QZ خالص
+    return;
+  }
+    // 1. جلب التوكين (تأكد من اسم المفتاح الصحيح سواء token أو access_token)
+    const token = sessionStorage.getItem("token"); 
+
+    // إعداد الهيدر للإرسال
+    const authHeaders = {
+      "Authorization": `Bearer ${token}` // إضافة التوكين هنا
+    };
+
+    // 2. إعداد الـ Certificate
     qz.security.setCertificatePromise(function (resolve, reject) {
-      fetch("api/admin/qztray/cert")
-        .then((response) => response.text())
+      fetch(`${baseUrl}api/admin/qztray/cert`, {
+        method: "GET",
+        headers: authHeaders // <--- إرسال التوكين هنا
+      })
+        .then((response) => {
+          if (!response.ok) {
+            // إذا كان الخطأ 401، فهذا يعني أن التوكين غير صحيح أو منتهي
+            if (response.status === 401) {
+                throw new Error("401 Unauthorized: Please check login status.");
+            }
+            throw new Error(`Certificate Error: ${response.status}`);
+          }
+          return response.text();
+        })
         .then(resolve)
-        .catch(reject);
+        .catch((err) => {
+          console.error("❌ Failed to fetch certificate:", err);
+          reject(err);
+        });
     });
 
     qz.security.setSignatureAlgorithm("SHA512");
 
+    // 3. إعداد الـ Signature
     qz.security.setSignaturePromise(function (toSign) {
       return function (resolve, reject) {
         const apiUrl = `${baseUrl}api/admin/qztray/sign?request=${toSign}`;
 
-        fetch(apiUrl)
+        fetch(apiUrl, {
+          method: "GET",
+          headers: authHeaders // <--- إرسال التوكين هنا أيضاً
+        })
           .then((response) => {
             if (!response.ok) {
-              throw new Error(`Server returned ${response.status}`);
+              if (response.status === 401) {
+                  throw new Error("401 Unauthorized: Signature rejected.");
+              }
+              throw new Error(`Signature Error: ${response.status}`);
             }
             return response.text();
           })
           .then(resolve)
-          .catch(reject);
+          .catch((err) => {
+            console.error("❌ Failed to sign request:", err);
+            reject(err);
+          });
       };
     });
 
-    qz.websocket
-      .connect()
-      .then(() => {
-        console.log("✅ Connected to QZ Tray");
-      })
-      .catch((err) => {
-        console.error("❌ QZ Tray connection error:", err);
-        toast.error(t("QZTrayNotRunning"));
-      });
+    // 4. الاتصال
+    if (!qz.websocket.isActive()) {
+      qz.websocket
+        .connect()
+        .then(() => {
+          console.log("✅ Connected to QZ Tray");
+        })
+        .catch((err) => {
+          console.error("❌ QZ Tray connection error:", err);
+          // تجاهل الخطأ إذا كان بسبب التكرار، لكن اعرضه إذا كان اتصالاً فعلياً
+          // toast.error(t("QZTrayNotRunning")); 
+        });
+    }
 
     return () => {
-      qz.websocket.disconnect();
+      if (qz.websocket.isActive()) {
+        qz.websocket.disconnect();
+      }
     };
-  }, []);
+  }, [baseUrl, t,shouldPrintReceipt]); // تمت إزالة token من الاعتماديات لتجنب إعادة الاتصال المتكررة إذا لم يكن ضرورياً
 
   const { postData, loading } = usePost();
 
@@ -338,7 +383,8 @@ const CheckOut = ({
       if (response.success) {
         setAppliedDiscount(response.discount);
         toast.success(t("DiscountApplied", { discount: response.discount }));
-      } else {
+      } 
+      else {
         setAppliedDiscount(0);
         setDiscountError("Invalid or Off discount code.");
         toast.error(t("InvalidOrOffDiscountCode"));
@@ -361,7 +407,7 @@ const CheckOut = ({
 
     setPaymentSplits((prevSplits) => {
       const totalExcludingCurrent = prevSplits.reduce(
-        (acc, s) => (s.id === id ? acc : acc + s.amount),
+        (acc, s) => (s._id === _id ? acc : acc + s.amount),
         0
       );
       const maxAllowed = requiredTotal - totalExcludingCurrent;
@@ -446,103 +492,112 @@ const CheckOut = ({
     return acc?.name?.toLowerCase().includes("visa");
   };
 
-  const proceedWithOrderSubmission = async (
-    due = 0,
-    customer_id = undefined,
-    dueModuleValue = 0,
-    forcedPassword = null
-  ) => {
-    const freeDiscountValue = parseFloat(freeDiscount) || 0;
+const proceedWithOrderSubmission = async (
+  due = 0,
+  customer_id = undefined,
+  dueModuleValue = 0,
+  forcedPassword = null
+) => {
+  const freeDiscountValue = parseFloat(freeDiscount) || 0;
 
-    if (
-      freeDiscountValue > 0 &&
-      !forcedPassword &&
-      !pendingFreeDiscountPassword
-    ) {
-      setPasswordModalOpen(true);
-      return;
-    }
+  // طلب كلمة سر للخصم المجاني
+  if (
+    freeDiscountValue > 0 &&
+    !forcedPassword &&
+    !pendingFreeDiscountPassword
+  ) {
+    setPasswordModalOpen(true);
+    return;
+  }
 
-    const safeOrderItems = Array.isArray(orderItems) ? orderItems : [];
+  const safeOrderItems = Array.isArray(orderItems) ? orderItems : [];
+  const hasDealItems = safeOrderItems.some((item) => item.is_deal);
+  const endpoint = getOrderEndpoint(null, safeOrderItems, hasDealItems);
+  const financialsPayload = buildFinancialsPayload(paymentSplits, financialAccounts);
 
-    const hasDealItems = safeOrderItems.some((item) => item.is_deal);
-    const endpoint = getOrderEndpoint(null, safeOrderItems, hasDealItems);
-    const financialsPayload = buildFinancialsPayload(
-      paymentSplits,
-      financialAccounts
-    );
+  const moduleId = sessionStorage.getItem("module_id");
 
-    const moduleId = sessionStorage.getItem("module_id");
-    let payload;
-    if (hasDealItems) {
-      payload = buildDealPayload(safeOrderItems, financialsPayload);
-    } else {
-      const finalDiscountId =
-        selectedDiscountAmount > 0 ? finalSelectedDiscountId : null;
+  let payload;
+  if (hasDealItems) {
+    payload = buildDealPayload(safeOrderItems, financialsPayload);
+  } else {
+    payload = buildOrderPayload({
+      orderItems: safeOrderItems,
+      amountToPay: requiredTotal,
+      order_tax,
+      totalDiscount: appliedDiscount > 0
+        ? amountToPay * (appliedDiscount / 100)
+        : totalDiscount,
+      notes: orderNotes.trim() || "No special instructions",
+      financialsPayload,
+      cashierId,
+      due,
+      user_id: customer_id,
+      selectedTaxId: selectedTaxId,
+      discount_id: selectedDiscountId,
+      module_id: moduleId,
+      free_discount: freeDiscountValue > 0 ? freeDiscountValue : undefined,
+      due_module: dueModuleValue > 0 ? dueModuleValue.toFixed(2) : undefined,
+      selectedTaxAmount: selectedTaxAmount,
+      password: forcedPassword || pendingFreeDiscountPassword || undefined,
+    });
+  }
 
-payload = buildOrderPayload({
-  orderItems: safeOrderItems,
-  amountToPay: requiredTotal,
-  order_tax,                              // ← الضريبة الأصلية من المنتجات (اختياري)
-  totalDiscount: appliedDiscount > 0
-    ? amountToPay * (appliedDiscount / 100)
-    : totalDiscount,
-  notes: orderNotes.trim() || "No special instructions",
-  financialsPayload,
-  cashierId,
-  due,
-  user_id: customer_id,
-  discount_id: selectedDiscountId,        // ← ده الـ ID بس (للخصم من القايمة)
-  module_id: moduleId,
-  free_discount: freeDiscountValue > 0 ? freeDiscountValue : undefined,
-  due_module: dueModuleValue > 0 ? dueModuleValue.toFixed(2) : undefined,
-  selectedTaxAmount: selectedTaxAmount,   // ← القيمة الفعلية للضريبة اليدوية (مهم جدًا)
-  password: forcedPassword || pendingFreeDiscountPassword || undefined,
-});
-    }
+  try {
+    const response = await postData(endpoint, payload, {
+      headers: { "Content-Type": "application/json" },
+    });
 
-    try {
-      const response = await postData(endpoint, payload, {
-        headers: { "Content-Type": "application/json" },
-      });
+    if (response?.success) {
+      // نجاح الطلب
+      toast.success(due === 1 ? t("DueOrderCreated") : t("OrderPlaced"));
+      setPendingFreeDiscountPassword("");
 
-      if (response?.success) {
-        toast.success(due === 1 ? t("DueOrderCreated") : t("OrderPlaced"));
+      // دالة التنظيف والإغلاق (مشتركة)
+      const completeOrder = () => {
+        onClearCart?.();
+        onClose();
+      };
 
-        setPendingFreeDiscountPassword("");
+      if (due === 0) {
+        // طلب عادي (مش آجل)
+        const receiptData = prepareReceiptData(
+          safeOrderItems,
+          amountToPay,
+          order_tax,
+          totalDiscount,
+          appliedDiscount,
+          {},
+          null,
+          requiredTotal,
+          response.success,
+          response
+        );
 
-        const handleNavigation = () => {
-          onClearCart();
-          onClose();
-        };
-
-        if (due === 0) {
-          const receiptData = prepareReceiptData(
-            safeOrderItems,
-            amountToPay,
-            order_tax,
-            totalDiscount,
-            appliedDiscount,
-            {},
-            null,
-            requiredTotal,
-            response.success,
-            response
-          );
+        if (shouldPrintReceipt) {
+          // مع طباعة
           printReceiptSilently(receiptData, response, () => {
-            handleNavigation();
+            completeOrder();
+            toast.success(t("OrderCompletedSuccessfully"));
           });
         } else {
-          handleNavigation();
+          // بدون طباعة
+          completeOrder();
+          toast.success(t("OrderCompletedSuccessfully") + " (" + t("NoPrint") + ")");
         }
       } else {
-        toast.error(response?.message || t("FailedToProcessOrder"));
+        // طلب آجل → بدون طباعة عادةً
+        completeOrder();
       }
-    } catch (e) {
-      console.error("Submit error:", e);
-      toast.error(e.message || t("SubmissionFailed"));
+    } else {
+      // فشل من الـ API
+      toast.error(response?.message || t("FailedToProcessOrder"));
     }
-  };
+  } catch (e) {
+    console.error("Submit error:", e);
+    toast.error(e.message || t("SubmissionFailed"));
+  }
+};
 
   const handleSelectCustomer = async (customer) => {
     if (requiredTotal > customer.can_debit) {
