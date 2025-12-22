@@ -34,88 +34,58 @@ export default function PendingOrders() {
     }
   }, [orderError]);
 
-  useEffect(() => {
-    if (orderDetailsData && orderDetailsData.id) {
-      console.log("Found valid order details:", orderDetailsData);
-      const order = orderDetailsData; 
+useEffect(() => {
+  if (!orderDetailsData?.data?.sale) return;
 
-      // ✅ Better mapping - extract the actual product data
-      const mappedOrderDetails = [];
-      
-      if (order.order_details && Array.isArray(order.order_details)) {
-        order.order_details.forEach(detail => {
-          if (detail.product && Array.isArray(detail.product)) {
-            // Handle nested product structure
-            detail.product.forEach(productItem => {
-              if (productItem.product) {
-                mappedOrderDetails.push({
-                  product_id: productItem.product._id,
-                  product_name: productItem.product.name,
-                  price: parseFloat(productItem.product.price || 0),
-                  count: parseInt(productItem.count || 1),
-                  variation_name: productItem.variation_name || null,
-                  addons: productItem.addons || []
-                });
-              }
-            });
-          } else if (detail.product_name) {
-            // Handle direct structure
-            mappedOrderDetails.push({
-              product_id: detail.product_id || detail.id,
-              product_name: detail.product_name,
-              price: parseFloat(detail.price || 0),
-              count: parseInt(detail.count || 1),
-              variation_name: detail.variation_name || null,
-              addons: detail.addons || []
-            });
-          }
-        });
-      }
+  const sale = orderDetailsData.data.sale;
+  const products = orderDetailsData.data.products || [];
 
-      const orderData = {
-        orderId: order.id,
-        orderDetails: mappedOrderDetails,
-        orderNumber: order.order_number,
-        amount: order.amount,
-        notes: order.notes,
-        orderType: "take_away",
-        timestamp: new Date().toISOString()
-      };
-      
-      console.log("Mapped order details:", mappedOrderDetails);
-      
-      toast.success(`Order #${order.order_number} loaded successfully!`);
-      
-      // ✅ Clear any existing cart data first
-      sessionStorage.removeItem("cart");
-      sessionStorage.removeItem("pending_order_info");
-      
-      // ✅ Navigate with the pending order data - DON'T clear state immediately
-      navigate("/", { 
-        state: { 
-          activeTab: "takeaway",
-          orderType: "take_away",
-          pendingOrder: orderData 
-        } 
-      });
-      
-      // ✅ Reset selection after navigation
-      setTimeout(() => {
-        setSelectedOrderId(null);
-        setOrderDetailsEndpoint(null);
-      }, 500);
-      
-    } else if (orderDetailsData) {
-        console.log("API response does not contain a valid order object:", orderDetailsData);
+  const mappedOrderDetails = products.map(item => ({
+    product_id: item.product_id,
+    price: item.price,
+    count: item.quantity,
+    subtotal: item.subtotal,
+    isGift: item.isGift,
+    options_id: item.options_id || []
+  }));
+
+  const orderData = {
+    orderId: sale._id,
+    orderNumber: sale.reference,
+    amount: orderDetailsData.data.grand_total,
+    orderDetails: mappedOrderDetails,
+    orderType: "take_away",
+    notes: sale.note || "",
+    timestamp: sale.createdAt
+  };
+
+  // تنظيف أي داتا قديمة
+  sessionStorage.removeItem("cart");
+  sessionStorage.removeItem("pending_order_info");
+
+  navigate("/", {
+    state: {
+      activeTab: "takeaway",
+      orderType: "take_away",
+      pendingOrder: orderData
     }
-  }, [orderDetailsData, selectedOrderId, navigate]);
+  });
+
+  // reset
+  setTimeout(() => {
+    setSelectedOrderId(null);
+    setOrderDetailsEndpoint(null);
+  }, 300);
+
+}, [orderDetailsData, navigate]);
+
 
   const handleSelectOrder = (orderId) => {
     if (orderLoading || selectedOrderId) return;
     
     console.log("Selecting order:", orderId);
     setSelectedOrderId(orderId);
-    setOrderDetailsEndpoint(`api/admin/pos/sales/sales/pending/${orderId}`);
+    setOrderDetailsEndpoint(`api/admin/pos/sales/pending/${orderId}`);
   };
 
   const formatDate = (dateString) => {
