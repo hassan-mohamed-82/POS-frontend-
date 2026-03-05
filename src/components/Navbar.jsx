@@ -61,11 +61,10 @@ function CustomerSearchCombobox({ customers, selectedCustomer, onSelect, t }) {
           className="w-[220px] justify-between h-auto py-1 px-3 text-sm"
         >
           {selectedCustomerObj
-            ? `${selectedCustomerObj.name}${
-                selectedCustomerObj.phone_number
-                  ? ` (${selectedCustomerObj.phone_number})`
-                  : ""
-              }`
+            ? `${selectedCustomerObj.name}${selectedCustomerObj.phone_number
+              ? ` (${selectedCustomerObj.phone_number})`
+              : ""
+            }`
             : t("Select Customer")}
           <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
         </Button>
@@ -143,10 +142,10 @@ export default function Navbar() {
   const { putData } = usePut();
   const currentTab = sessionStorage.getItem("tab") || "take_away";
   const isArabic = i18n.language === "ar";
-  
+
   // ✅ تصحيح مسار استخراج العملاء
   const { data: selections } = useGet("api/admin/pos-home/selections");
-  const customers = selections?.data?.customers || []; 
+  const customers = selections?.data?.customers || [];
 
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(
@@ -243,46 +242,46 @@ export default function Navbar() {
 
   const handleClose = async () => {
     // ⚠️ ملاحظة: تم إزالة setLoading(true) / setLoading(false) لأن usePut يديرها داخلياً.
-    
+
     try {
-        const endpoint = `api/admin/cashier-shift/end`;
+      const endpoint = `api/admin/cashier-shift/end`;
 
-        // ✅ استدعاء API لقفل الـ shift باستخدام putData
-        await putData(endpoint, {}); 
+      // ✅ استدعاء API لقفل الـ shift باستخدام putData
+      await putData(endpoint, {});
 
-        // ✅ تحديث الـ context
-        closeShift();
+      // ✅ تحديث الـ context
+      closeShift();
 
-        // ✅ مسح بيانات الـ shift من sessionStorage
-        sessionStorage.removeItem("shift_start_time");
-        sessionStorage.removeItem("shift_data");
-        sessionStorage.clear(); 
+      // ✅ مسح بيانات الـ shift من sessionStorage
+      sessionStorage.removeItem("shift_start_time");
+      sessionStorage.removeItem("shift_data");
+      sessionStorage.clear();
 
-        // ✅ عرض رسالة النجاح
-        toast.success(t("ShiftClosedSuccessfully"));
+      // ✅ عرض رسالة النجاح
+      toast.success(t("ShiftClosedSuccessfully"));
 
-        // ✅ الانتقال لصفحة تسجيل الدخول
-        navigate("/login");
+      // ✅ الانتقال لصفحة تسجيل الدخول
+      navigate("/login");
     } catch (err) {
-        // 🛑 معالجة الأخطاء - الـ Hook يرمي الخطأ (throw err)
-        console.error("Close shift error:", err);
-        // نعرض رسالة الخطأ للمستخدم
-        toast.error(err?.response?.data?.message || t("FailedToCloseShift"));
-    } 
+      // 🛑 معالجة الأخطاء - الـ Hook يرمي الخطأ (throw err)
+      console.error("Close shift error:", err);
+      // نعرض رسالة الخطأ للمستخدم
+      toast.error(err?.response?.data?.message || t("FailedToCloseShift"));
+    }
   };
 
 
   const handleLogout = async () => {
     try {
-        await postData("api/admin/cashier-shift/logout", {});
-        sessionStorage.clear();
-        toast.success(t("Logged out successfully"));
-        navigate("/login");
+      await postData("api/admin/cashier-shift/logout", {});
+      sessionStorage.clear();
+      toast.success(t("Logged out successfully"));
+      navigate("/login");
     } catch (err) {
       toast.error(err?.message || t("Error while logging out"));
     }
   };
-  
+
   // 🛑 تم حذف دالة CustomerModal المكررة لأنك تستخدم AddCustomer المستورد
 
   return (
@@ -331,16 +330,16 @@ export default function Navbar() {
             >
               <FaDollarSign className="text-2xl md:text-3xl" />
             </button>
-            
+
             {/* ✅ استبدال SELECT CUSTOMER بمكون Combobox (مع البحث) */}
             <CustomerSearchCombobox
-                customers={customers}
-                selectedCustomer={selectedCustomer}
-                onSelect={(id) => {
-                    setSelectedCustomer(id);
-                    sessionStorage.setItem("selected_customer_id", id);
-                }}
-                t={t}
+              customers={customers}
+              selectedCustomer={selectedCustomer}
+              onSelect={(id) => {
+                setSelectedCustomer(id);
+                sessionStorage.setItem("selected_customer_id", id);
+              }}
+              t={t}
             />
 
             {/* ADD CUSTOMER */}
@@ -365,7 +364,7 @@ export default function Navbar() {
                   value="take_away"
                   className="px-3 py-1 text-sm font-semibold bg-white text-bg-primary border border-bg-primary data-[state=active]:bg-bg-primary data-[state=active]:text-white transition-colors duration-200"
                 >
-                  {t("take_away")}
+                  {t("POS")}
                 </TabsTrigger>
 
 
@@ -425,14 +424,12 @@ export default function Navbar() {
               <span className="text-sm font-medium">AR</span>
               <button
                 onClick={toggleLanguage}
-                className={`relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                  isArabic ? "bg-bg-primary" : "bg-gray-300"
-                }`}
+                className={`relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isArabic ? "bg-bg-primary" : "bg-gray-300"
+                  }`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    !isArabic ? "translate-x-6" : "translate-x-0"
-                  }`}
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${!isArabic ? "translate-x-6" : "translate-x-0"
+                    }`}
                 />
               </button>
               <span className="text-sm font-medium">EN</span>
